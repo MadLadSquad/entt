@@ -65,6 +65,26 @@ struct meta_function_descriptor<Type, Ret(Class:: *)(Args...)> {
 
 /**
  * @brief Meta function descriptor.
+ * @tparam Type Reflected type to which the meta data is associated.
+ * @tparam Class Actual owner of the data member.
+ * @tparam Ret Data member type.
+ */
+template<typename Type, typename Ret, typename Class>
+struct meta_function_descriptor<Type, Ret Class:: *> {
+    /*! @brief Meta data return type. */
+    using return_type = Ret;
+    /*! @brief Meta data arguments. */
+    using args_type = std::conditional_t<std::is_same_v<Type, Class>, type_list<Ret>, type_list<Class &, Ret>>;
+
+    /*! @brief True if the meta data is const, false otherwise. */
+    static constexpr auto is_const = false;
+    /*! @brief True if the meta data is static, false otherwise. */
+    static constexpr auto is_static = false;
+};
+
+
+/**
+ * @brief Meta function descriptor.
  * @tparam Type Reflected type to which the meta function is associated.
  * @tparam Ret Function return type.
  * @tparam Args Function arguments.
@@ -99,6 +119,9 @@ class meta_function_helper {
 
     template<typename Ret, typename... Args, typename Class>
     static constexpr meta_function_descriptor<Type, Ret(Class:: *)(Args...)> get_rid_of_noexcept(Ret(Class:: *)(Args...));
+
+    template<typename Ret, typename Class>
+    static constexpr meta_function_descriptor<Type, Ret Class:: *> get_rid_of_noexcept(Ret Class:: *);
 
     template<typename Ret, typename... Args>
     static constexpr meta_function_descriptor<Type, Ret(*)(Args...)> get_rid_of_noexcept(Ret(*)(Args...));
@@ -298,7 +321,7 @@ template<typename Type, typename... Args, std::size_t... Index>
         return Type{(args+Index)->cast<Args>()...};
     }
 
-    return {};
+    return meta_any{};
 }
 
 
@@ -390,7 +413,7 @@ template<typename Type, typename Policy = as_is_t, typename Candidate>
  */
 template<typename Type, auto Candidate, typename Policy = as_is_t>
 [[nodiscard]] meta_any meta_construct(meta_any * const args) {
-    return meta_construct<Type, Policy>(Candidate, args);
+    return meta_invoke<Type, Policy>({}, Candidate, args);
 }
 
 

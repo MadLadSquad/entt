@@ -107,7 +107,7 @@ class basic_registry {
     template<typename Component>
     [[nodiscard]] storage_type<Component> * assure() const {
         static_assert(std::is_same_v<Component, std::decay_t<Component>>, "Non-decayed types not allowed");
-        const auto index = type_seq<Component>::value();
+        const auto index = type_index<Component>::value();
 
         if(!(index < pools.size())) {
             pools.resize(size_type(index)+1u);
@@ -124,7 +124,7 @@ class basic_registry {
     template<typename Component>
     [[nodiscard]] const storage_type<Component> * pool_if_exists() const ENTT_NOEXCEPT {
         static_assert(std::is_same_v<Component, std::decay_t<Component>>, "Non-decayed types not allowed");
-        const auto index = type_seq<Component>::value();
+        const auto index = type_index<Component>::value();
         return (!(index < pools.size()) || !pools[index].pool) ? nullptr : static_cast<const storage_type<Component> *>(pools[index].pool.get());
     }
 
@@ -183,14 +183,14 @@ public:
      * empty and thus invalid element otherwise.
      */
     poly_storage & storage(const type_info info) {
-        ENTT_ASSERT(info.seq() < pools.size() && pools[info.seq()].poly, "Storage not available");
-        return pools[info.seq()].poly;
+        ENTT_ASSERT(info.index() < pools.size() && pools[info.index()].poly, "Storage not available");
+        return pools[info.index()].poly;
     }
 
     /*! @copydoc storage */
     const poly_storage & storage(const type_info info) const {
-        ENTT_ASSERT(info.seq() < pools.size() && pools[info.seq()].poly, "Storage not available");
-        return pools[info.seq()].poly;
+        ENTT_ASSERT(info.index() < pools.size() && pools[info.index()].poly, "Storage not available");
+        return pools[info.index()].poly;
     }
 
     /**

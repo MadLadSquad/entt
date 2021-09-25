@@ -74,7 +74,6 @@ struct meta_conv_node {
 struct meta_ctor_node {
     using size_type = std::size_t;
     meta_ctor_node * next;
-    meta_prop_node * prop;
     const size_type arity;
     meta_type(* const arg)(const size_type) ENTT_NOEXCEPT;
     meta_any(* const invoke)(meta_any * const);
@@ -82,11 +81,14 @@ struct meta_ctor_node {
 
 
 struct meta_data_node {
+    using size_type = std::size_t;
     id_type id;
     meta_data_node * next;
     meta_prop_node * prop;
+    const size_type arity;
     const meta_traits traits;
     meta_type_node * const type;
+    meta_type(* const arg)(const size_type) ENTT_NOEXCEPT;
     bool(* const set)(meta_handle, meta_any);
     meta_any(* const get)(meta_handle);
 };
@@ -141,15 +143,15 @@ template<typename Type>
 class ENTT_API meta_node {
     static_assert(std::is_same_v<Type, std::remove_cv_t<std::remove_reference_t<Type>>>, "Invalid type");
 
-    [[nodiscard]] static decltype(meta_type_node::default_constructor) meta_default_constructor() ENTT_NOEXCEPT {
+    [[nodiscard]] static auto * meta_default_constructor() ENTT_NOEXCEPT {
         if constexpr(std::is_default_constructible_v<Type>) {
             return +[]() { return meta_any{std::in_place_type<Type>}; };
         } else {
-            return nullptr;
+            return static_cast<decltype(meta_type_node::default_constructor)>(nullptr);
         }
     }
 
-    [[nodiscard]] static decltype(meta_type_node::conversion_helper) meta_conversion_helper() ENTT_NOEXCEPT {
+    [[nodiscard]] static auto * meta_conversion_helper() ENTT_NOEXCEPT {
         if constexpr(std::is_arithmetic_v<Type>) {
             return +[](const any &storage, const any &value) {
                 return value ? static_cast<double>(any_cast<Type &>(const_cast<any &>(storage)) = static_cast<Type>(any_cast<double>(value))) : static_cast<double>(any_cast<const Type &>(storage));
@@ -159,7 +161,7 @@ class ENTT_API meta_node {
                 return value ? static_cast<double>(any_cast<Type &>(const_cast<any &>(storage)) = static_cast<Type>(static_cast<std::underlying_type_t<Type>>(any_cast<double>(value)))) : static_cast<double>(any_cast<const Type &>(storage));
             };
         } else {
-            return nullptr;
+            return static_cast<decltype(meta_type_node::conversion_helper)>(nullptr);
         }
     }
 
@@ -232,6 +234,27 @@ template<auto Member, typename Op>
     }
 
     return nullptr;
+}
+
+
+[[nodiscard]] inline bool can_cast_or_convert(const internal::meta_type_node *type, const internal::meta_type_node *other) ENTT_NOEXCEPT {
+    if(type->info == other->info) {
+        return true;
+    }
+
+    for(const auto *curr = type->conv; curr; curr = curr->next) {
+        if(curr->type->info == other->info) {
+            return true;
+        }
+    }
+
+    for(const auto *curr = type->base; curr; curr = curr->next) {
+        if(can_cast_or_convert(curr->type, other)) {
+            return true;
+        }
+    }
+
+    return (type->conversion_helper && other->conversion_helper);
 }
 
 
