@@ -86,6 +86,8 @@ include(GNUInstallDirs)
 add_library(EnTT INTERFACE)
 add_library(EnTT::EnTT ALIAS EnTT)
 
+target_precompile_headers(EnTT INTERFACE src/entt/entt.hpp)
+
 target_include_directories(
     EnTT
     INTERFACE
