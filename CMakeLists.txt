@@ -2,7 +2,7 @@
 # EnTT
 #
 
-cmake_minimum_required(VERSION 3.12.4)
+cmake_minimum_required(VERSION 3.17)
 
 #
 # Building in-tree is not allowed (we take care of your craziness).
@@ -77,6 +77,8 @@ include(GNUInstallDirs)
 
 add_library(EnTT INTERFACE)
 add_library(EnTT::EnTT ALIAS EnTT)
+
+target_precompile_headers(EnTT INTERFACE src/entt/entt.hpp)
 
 target_include_directories(
     EnTT
