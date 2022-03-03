@@ -49,6 +49,7 @@ Many thanks to [these people](https://skypjack.github.io/sponsorship/) and
 * [Integration](#integration)
   * [Requirements](#requirements)
   * [CMake](#cmake)
+  * [Natvis support](#natvis-support)
   * [Packaging Tools](#packaging-tools)
   * [pkg-config](#pkg-config)
 * [Documentation](#documentation)
@@ -73,33 +74,32 @@ This project started off as a pure entity-component system. Over time the
 codebase has grown as more and more classes and functionalities were added.<br/>
 Here is a brief, yet incomplete list of what it offers today:
 
-* Statically generated integer **identifiers** for types (assigned either at
-  compile-time or at runtime).
+* Built-in **RTTI system** mostly similar to the standard one.
 * A `constexpr` utility for human readable **resource names**.
-* A minimal **configuration system** built using the monostate pattern.
-* An incredibly fast **entity-component system** based on sparse sets, with its
-  own _pay for what you use_ policy to adjust performance and memory usage
-  according to the users' requirements.
+* Minimal **configuration system** built using the monostate pattern.
+* Incredibly fast **entity-component system** with its own _pay for what you
+  use_ policy.
 * Views and groups to iterate entities and components and allow different access
   patterns, from **perfect SoA** to fully random.
 * A lot of **facilities** built on top of the entity-component system to help
-  the users and avoid reinventing the wheel (dependencies, snapshot, handles,
-  support for **reactive systems** and so on).
+  the users and avoid reinventing the wheel.
 * The smallest and most basic implementation of a **service locator** ever seen.
 * A built-in, non-intrusive and macro-free runtime **reflection system**.
 * **Static polymorphism** made simple and within everyone's reach.
+* A few homemade containers, like a sparse set based **hash map**.
 * A **cooperative scheduler** for processes of any type.
 * All that is needed for **resource management** (cache, loaders, handles).
-* Delegates, **signal handlers** (with built-in support for collectors) and a
-  tiny event dispatcher for immediate and delayed events to integrate in loops.
+* Delegates, **signal handlers** and a tiny event dispatcher.
 * A general purpose **event emitter** as a CRTP idiom based class template.
 * And **much more**! Check out the
   [**wiki**](https://github.com/skypjack/entt/wiki).
 
-Consider this list a work in progress as well as the project. The whole API is
-fully documented in-code for those who are brave enough to read it.
+Consider these lists a work in progress as well as the project. The whole API is
+fully documented in-code for those who are brave enough to read it.<br/>
+Please, do note that all tools are also DLL-friendly now and run smoothly across
+boundaries.
 
-It is also known that `EnTT` is used in **Minecraft**.<br/>
+One thing known to most is that `EnTT` is also used in **Minecraft**.<br/>
 Given that the game is available literally everywhere, I can confidently say 
 that the library has been sufficiently tested on every platform that can come to 
 mind.
@@ -156,7 +156,7 @@ int main() {
 ## Motivation
 
 I started developing `EnTT` for the _wrong_ reason: my goal was to design an
-entity-component system to beat another well known open source solution both in
+entity-component system to beat another well known open source library both in
 terms of performance and possibly memory usage.<br/>
 In the end, I did it, but it wasn't very satisfying. Actually it wasn't
 satisfying at all. The fastest and nothing more, fairly little indeed. When I
@@ -245,6 +245,14 @@ it in many of the ways that you can think of and that involve `CMake`.<br/>
 Covering all possible cases would require a treaty and not a simple README file,
 but I'm confident that anyone reading this section also knows what it's about
 and can use `EnTT` from a `CMake` project without problems.
+
+## Natvis support
+
+When using `CMake`, just enable the option `ENTT_INCLUDE_NATVIS` and enjoy
+it.<br/>
+Otherwise, most of the tools are covered via Natvis and all files can be found
+in the `natvis` directory, divided by module.<br/>
+If you spot errors or have suggestions, any contribution is welcome!
 
 ## Packaging Tools
 
@@ -405,7 +413,7 @@ know who has participated so far.
 
 # License
 
-Code and documentation Copyright (c) 2017-2021 Michele Caini.<br/>
+Code and documentation Copyright (c) 2017-2022 Michele Caini.<br/>
 Colorful logo Copyright (c) 2018-2021 Richard Caseres.
 
 Code released under
