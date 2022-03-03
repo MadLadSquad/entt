@@ -1,16 +1,14 @@
 #ifndef ENTT_CORE_MEMORY_HPP
 #define ENTT_CORE_MEMORY_HPP
 
-
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <type_traits>
 #include <utility>
 #include "../config/config.h"
 
-
 namespace entt {
-
 
 /**
  * @brief Unwraps fancy pointers, does nothing otherwise (waiting for C++20).
@@ -27,7 +25,6 @@ template<typename Type>
     }
 }
 
-
 /**
  * @brief Utility function to design allocation-aware containers.
  * @tparam Allocator Type of allocator.
@@ -40,7 +37,6 @@ constexpr void propagate_on_container_copy_assignment([[maybe_unused]] Allocator
         lhs = rhs;
     }
 }
-
 
 /**
  * @brief Utility function to design allocation-aware containers.
@@ -55,7 +51,6 @@ constexpr void propagate_on_container_move_assignment([[maybe_unused]] Allocator
     }
 }
 
-
 /**
  * @brief Utility function to design allocation-aware containers.
  * @tparam Allocator Type of allocator.
@@ -63,16 +58,14 @@ constexpr void propagate_on_container_move_assignment([[maybe_unused]] Allocator
  * @param rhs Another valid allocator.
  */
 template<typename Allocator>
-constexpr void propagate_on_container_swap(Allocator &lhs, Allocator &rhs) ENTT_NOEXCEPT {
-    constexpr auto pocs = std::allocator_traits<Allocator>::propagate_on_container_swap::value;
-    ENTT_ASSERT(pocs || lhs == rhs, "Cannot swap the containers");
+constexpr void propagate_on_container_swap([[maybe_unused]] Allocator &lhs, [[maybe_unused]] Allocator &rhs) ENTT_NOEXCEPT {
+    ENTT_ASSERT(std::allocator_traits<Allocator>::propagate_on_container_swap::value || lhs == rhs, "Cannot swap the containers");
 
-    if constexpr(pocs) {
+    if constexpr(std::allocator_traits<Allocator>::propagate_on_container_swap::value) {
         using std::swap;
         swap(lhs, rhs);
     }
 }
-
 
 /**
  * @brief Checks whether a value is a power of two or not.
@@ -83,21 +76,33 @@ constexpr void propagate_on_container_swap(Allocator &lhs, Allocator &rhs) ENTT_
     return value && ((value & (value - 1)) == 0);
 }
 
+/**
+ * @brief Computes the smallest power of two greater than or equal to a value.
+ * @param value The value to use.
+ * @return The smallest power of two greater than or equal to the given value.
+ */
+[[nodiscard]] inline constexpr std::size_t next_power_of_two(const std::size_t value) ENTT_NOEXCEPT {
+    ENTT_ASSERT(value < (std::size_t{1u} << (std::numeric_limits<std::size_t>::digits - 1)), "Numeric limits exceeded");
+    std::size_t curr = value - (value != 0u);
+
+    for(int next = 1; next < std::numeric_limits<std::size_t>::digits; next = next * 2) {
+        curr |= curr >> next;
+    }
+
+    return ++curr;
+}
 
 /**
  * @brief Fast module utility function (powers of two only).
- * @tparam Value Compile-time page size, it must be a power of two.
  * @param value A value for which to calculate the modulus.
- * @return Remainder of division.
+ * @param mod _Modulus_, it must be a power of two.
+ * @return The common remainder.
  */
-template<std::size_t Value>
-[[nodiscard]] constexpr std::size_t fast_mod(const std::size_t value) ENTT_NOEXCEPT {
-    static_assert(is_power_of_two(Value), "Value must be a power of two");
-    return value & (Value - 1u);
+[[nodiscard]] inline constexpr std::size_t fast_mod(const std::size_t value, const std::size_t mod) ENTT_NOEXCEPT {
+    ENTT_ASSERT(is_power_of_two(mod), "Value must be a power of two");
+    return value & (mod - 1u);
 }
 
-
-}
-
+} // namespace entt
 
 #endif
