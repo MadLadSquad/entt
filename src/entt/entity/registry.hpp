@@ -42,15 +42,14 @@ class storage_proxy_iterator final {
     template<typename Other>
     friend class storage_proxy_iterator;
 
-    using iterator_traits = std::iterator_traits<It>;
-    using first_type = typename iterator_traits::value_type::first_type;
-    using second_type = typename iterator_traits::value_type::second_type::element_type;
+    using first_type = std::remove_reference_t<decltype(std::declval<It>()->first)>;
+    using second_type = std::remove_reference_t<decltype(std::declval<It>()->second)>;
 
 public:
-    using value_type = std::pair<first_type, constness_as_t<second_type, std::remove_reference_t<typename iterator_traits::reference>> &>;
+    using value_type = std::pair<first_type, constness_as_t<typename second_type::element_type, second_type> &>;
     using pointer = input_iterator_pointer<value_type>;
     using reference = value_type;
-    using difference_type = typename iterator_traits::difference_type;
+    using difference_type = std::ptrdiff_t;
     using iterator_category = std::input_iterator_tag;
 
     storage_proxy_iterator() ENTT_NOEXCEPT = default;
@@ -59,7 +58,7 @@ public:
         : it{iter} {}
 
     template<typename Other, typename = std::enable_if_t<!std::is_same_v<It, Other> && std::is_constructible_v<It, Other>>>
-    storage_proxy_iterator(const storage_proxy_iterator<Other> &other)
+    storage_proxy_iterator(const storage_proxy_iterator<Other> &other) ENTT_NOEXCEPT
         : it{other.it} {}
 
     storage_proxy_iterator &operator++() ENTT_NOEXCEPT {
@@ -98,20 +97,20 @@ public:
         return (*this + -value);
     }
 
-    [[nodiscard]] reference operator[](const difference_type value) const {
+    [[nodiscard]] reference operator[](const difference_type value) const ENTT_NOEXCEPT {
         return {it[value].first, *it[value].second};
     }
 
-    [[nodiscard]] reference operator*() const {
+    [[nodiscard]] reference operator*() const ENTT_NOEXCEPT {
         return {it->first, *it->second};
     }
 
-    [[nodiscard]] pointer operator->() const {
+    [[nodiscard]] pointer operator->() const ENTT_NOEXCEPT {
         return operator*();
     }
 
     template<typename ILhs, typename IRhs>
-    friend auto operator-(const storage_proxy_iterator<ILhs> &, const storage_proxy_iterator<IRhs> &) ENTT_NOEXCEPT;
+    friend std::ptrdiff_t operator-(const storage_proxy_iterator<ILhs> &, const storage_proxy_iterator<IRhs> &) ENTT_NOEXCEPT;
 
     template<typename ILhs, typename IRhs>
     friend bool operator==(const storage_proxy_iterator<ILhs> &, const storage_proxy_iterator<IRhs> &) ENTT_NOEXCEPT;
@@ -124,7 +123,7 @@ private:
 };
 
 template<typename ILhs, typename IRhs>
-[[nodiscard]] auto operator-(const storage_proxy_iterator<ILhs> &lhs, const storage_proxy_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
+[[nodiscard]] std::ptrdiff_t operator-(const storage_proxy_iterator<ILhs> &lhs, const storage_proxy_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
     return lhs.it - rhs.it;
 }
 
@@ -158,48 +157,49 @@ template<typename ILhs, typename IRhs>
     return !(lhs < rhs);
 }
 
-class registry_context {
-    template<typename Type>
-    [[nodiscard]] id_type type_to_key() const ENTT_NOEXCEPT {
-        return type_id<std::remove_const_t<std::remove_reference_t<Type>>>().hash();
+struct registry_context {
+    template<typename Type, typename... Args>
+    Type &emplace_hint(const id_type id, Args &&...args) {
+        return any_cast<Type &>(data.try_emplace(id, std::in_place_type<Type>, std::forward<Args>(args)...).first->second);
     }
 
-public:
     template<typename Type, typename... Args>
     Type &emplace(Args &&...args) {
-        return any_cast<Type &>(data.try_emplace(type_to_key<Type>(), std::in_place_type<Type>, std::forward<Args>(args)...).first->second);
+        return emplace_hint<Type>(type_id<Type>().hash(), std::forward<Args>(args)...);
     }
 
     template<typename Type>
-    void erase() {
-        data.erase(type_to_key<Type>());
+    bool erase(const id_type id = type_id<Type>().hash()) {
+        const auto it = data.find(id);
+        return it != data.end() && it->second.type() == type_id<Type>() ? (data.erase(it), true) : false;
     }
 
     template<typename Type>
-    [[nodiscard]] std::add_const_t<Type> &at() const {
-        return any_cast<std::add_const_t<Type> &>(data.at(type_to_key<Type>()));
+    [[nodiscard]] std::add_const_t<Type> &at(const id_type id = type_id<Type>().hash()) const {
+        return any_cast<std::add_const_t<Type> &>(data.at(id));
     }
 
     template<typename Type>
-    [[nodiscard]] Type &at() {
-        return any_cast<Type &>(data.at(type_to_key<Type>()));
+    [[nodiscard]] Type &at(const id_type id = type_id<Type>().hash()) {
+        return any_cast<Type &>(data.at(id));
     }
 
     template<typename Type>
-    [[nodiscard]] std::add_const_t<Type> *find() const {
-        auto it = data.find(type_to_key<Type>());
-        return it == data.cend() ? nullptr : any_cast<std::add_const_t<Type>>(&it->second);
+    [[nodiscard]] std::add_const_t<Type> *find(const id_type id = type_id<Type>().hash()) const {
+        const auto it = data.find(id);
+        return it != data.cend() ? any_cast<std::add_const_t<Type>>(&it->second) : nullptr;
     }
 
     template<typename Type>
-    [[nodiscard]] Type *find() {
-        auto it = data.find(type_to_key<Type>());
-        return it == data.end() ? nullptr : any_cast<Type>(&it->second);
+    [[nodiscard]] Type *find(const id_type id = type_id<Type>().hash()) {
+        const auto it = data.find(id);
+        return it != data.end() ? any_cast<Type>(&it->second) : nullptr;
     }
 
     template<typename Type>
-    [[nodiscard]] bool contains() const {
-        return data.contains(type_to_key<Type>());
+    [[nodiscard]] bool contains(const id_type id = type_id<Type>().hash()) const {
+        const auto it = data.find(id);
+        return it != data.end() && it->second.type() == type_id<Type>();
     }
 
 private:
@@ -339,7 +339,7 @@ public:
      * @brief Move constructor.
      * @param other The instance to move from.
      */
-    basic_registry(basic_registry &&other) ENTT_NOEXCEPT
+    basic_registry(basic_registry &&other)
         : pools{std::move(other.pools)},
           groups{std::move(other.groups)},
           entities{std::move(other.entities)},
@@ -355,7 +355,7 @@ public:
      * @param other The instance to move from.
      * @return This registry.
      */
-    basic_registry &operator=(basic_registry &&other) ENTT_NOEXCEPT {
+    basic_registry &operator=(basic_registry &&other) {
         pools = std::move(other.pools);
         groups = std::move(other.groups);
         entities = std::move(other.entities);
@@ -700,8 +700,8 @@ public:
     version_type destroy(const entity_type entity, const version_type version) {
         ENTT_ASSERT(valid(entity), "Invalid entity");
 
-        for(auto &&curr: pools) {
-            curr.second->remove(entity);
+        for(size_type pos = pools.size(); pos; --pos) {
+            pools.begin()[pos - 1u].second->remove(entity);
         }
 
         return release_entity(entity, version);
@@ -1356,12 +1356,12 @@ public:
     /**
      * @brief Checks whether the given components belong to any group.
      * @tparam Component Types of components in which one is interested.
-     * @return True if the pools of the given components are sortable, false
+     * @return True if the pools of the given components are _free_, false
      * otherwise.
      */
     template<typename... Component>
-    [[nodiscard]] bool sortable() const {
-        return std::none_of(groups.cbegin(), groups.cend(), [](auto &&gdata) { return (gdata.owned(type_hash<std::remove_const_t<Component>>::value()) || ...); });
+    [[nodiscard]] bool owned() const {
+        return std::any_of(groups.cbegin(), groups.cend(), [](auto &&gdata) { return (gdata.owned(type_hash<std::remove_const_t<Component>>::value()) || ...); });
     }
 
     /**
@@ -1415,7 +1415,7 @@ public:
      */
     template<typename Component, typename Compare, typename Sort = std_sort, typename... Args>
     void sort(Compare compare, Sort algo = Sort{}, Args &&...args) {
-        ENTT_ASSERT(sortable<Component>(), "Cannot sort owned storage");
+        ENTT_ASSERT(!owned<Component>(), "Cannot sort owned storage");
         auto &cpool = assure<Component>();
 
         if constexpr(std::is_invocable_v<Compare, decltype(cpool.get({})), decltype(cpool.get({}))>) {
@@ -1447,7 +1447,7 @@ public:
      */
     template<typename To, typename From>
     void sort() {
-        ENTT_ASSERT(sortable<To>(), "Cannot sort owned storage");
+        ENTT_ASSERT(!owned<To>(), "Cannot sort owned storage");
         assure<To>().respect(assure<From>());
     }
 

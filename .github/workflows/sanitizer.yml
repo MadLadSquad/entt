@@ -4,8 +4,8 @@ on: [push, pull_request]
 
 jobs:
 
-  linux:
-    timeout-minutes: 10
+  clang:
+    timeout-minutes: 15
 
     strategy:
       matrix:

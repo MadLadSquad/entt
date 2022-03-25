@@ -1,3 +1,5 @@
+#include "config/config.h"
+#include "config/macro.h"
 #include "config/version.h"
 #include "container/dense_map.hpp"
 #include "container/dense_set.hpp"
@@ -25,6 +27,7 @@
 #include "entity/organizer.hpp"
 #include "entity/registry.hpp"
 #include "entity/runtime_view.hpp"
+#include "entity/sigh_storage_mixin.hpp"
 #include "entity/snapshot.hpp"
 #include "entity/sparse_set.hpp"
 #include "entity/storage.hpp"
