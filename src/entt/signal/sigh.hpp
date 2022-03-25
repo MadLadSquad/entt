@@ -57,6 +57,10 @@ class sigh<Ret(Args...), Allocator> {
     /*! @brief A sink is allowed to modify a signal. */
     friend class sink<sigh<Ret(Args...), Allocator>>;
 
+    using alloc_traits = std::allocator_traits<Allocator>;
+    static_assert(std::is_same_v<typename alloc_traits::value_type, Ret (*)(Args...)>, "Invalid value type");
+    using container_type = std::vector<delegate<Ret(Args...)>, typename alloc_traits::template rebind_alloc<delegate<Ret(Args...)>>>;
+
 public:
     /*! @brief Allocator type. */
     using allocator_type = Allocator;
@@ -77,7 +81,7 @@ public:
         : calls{allocator} {}
 
     /**
-     * @brief Default copy constructor.
+     * @brief Copy constructor.
      * @param other The instance to copy from.
      */
     sigh(const sigh &other)
@@ -92,7 +96,7 @@ public:
         : calls{other.calls, allocator} {}
 
     /**
-     * @brief Default move constructor.
+     * @brief Move constructor.
      * @param other The instance to move from.
      */
     sigh(sigh &&other) ENTT_NOEXCEPT
@@ -107,7 +111,7 @@ public:
         : calls{std::move(other.calls), allocator} {}
 
     /**
-     * @brief Default copy assignment operator.
+     * @brief Copy assignment operator.
      * @param other The instance to copy from.
      * @return This signal handler.
      */
@@ -117,7 +121,7 @@ public:
     }
 
     /**
-     * @brief Default move assignment operator.
+     * @brief Move assignment operator.
      * @param other The instance to move from.
      * @return This signal handler.
      */
@@ -215,7 +219,7 @@ public:
     }
 
 private:
-    std::vector<delegate<Ret(Args...)>, Allocator> calls;
+    container_type calls;
 };
 
 /**
@@ -453,7 +457,7 @@ public:
         if(value_or_instance) {
             const auto &calls = signal->calls;
             const auto it = std::find_if(calls.cbegin(), calls.cend(), [value_or_instance](const auto &delegate) {
-                return delegate.instance() == value_or_instance;
+                return delegate.data() == value_or_instance;
             });
 
             other.offset = std::distance(it, calls.cend());
@@ -572,7 +576,7 @@ public:
     void disconnect(Type *value_or_instance) {
         if(value_or_instance) {
             auto &calls = signal->calls;
-            auto predicate = [value_or_instance](const auto &delegate) { return delegate.instance() == value_or_instance; };
+            auto predicate = [value_or_instance](const auto &delegate) { return delegate.data() == value_or_instance; };
             calls.erase(std::remove_if(calls.begin(), calls.end(), std::move(predicate)), calls.end());
         }
     }

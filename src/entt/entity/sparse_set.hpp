@@ -74,15 +74,15 @@ struct sparse_set_iterator final {
         return (*this + -value);
     }
 
-    [[nodiscard]] reference operator[](const difference_type value) const {
+    [[nodiscard]] reference operator[](const difference_type value) const ENTT_NOEXCEPT {
         return packed->data()[index() - value];
     }
 
-    [[nodiscard]] pointer operator->() const {
+    [[nodiscard]] pointer operator->() const ENTT_NOEXCEPT {
         return packed->data() + index();
     }
 
-    [[nodiscard]] reference operator*() const {
+    [[nodiscard]] reference operator*() const ENTT_NOEXCEPT {
         return *operator->();
     }
 
@@ -96,7 +96,7 @@ private:
 };
 
 template<typename Type, typename Other>
-[[nodiscard]] auto operator-(const sparse_set_iterator<Type> &lhs, const sparse_set_iterator<Other> &rhs) ENTT_NOEXCEPT {
+[[nodiscard]] std::ptrdiff_t operator-(const sparse_set_iterator<Type> &lhs, const sparse_set_iterator<Other> &rhs) ENTT_NOEXCEPT {
     return rhs.index() - lhs.index();
 }
 
@@ -171,11 +171,10 @@ enum class deletion_policy : std::uint8_t {
 template<typename Entity, typename Allocator>
 class basic_sparse_set {
     using alloc_traits = std::allocator_traits<Allocator>;
-    static_assert(std::is_same_v<typename alloc_traits::value_type, Entity>);
-
-    using entity_traits = entt_traits<Entity>;
+    static_assert(std::is_same_v<typename alloc_traits::value_type, Entity>, "Invalid value type");
     using sparse_container_type = std::vector<typename alloc_traits::pointer, typename alloc_traits::template rebind_alloc<typename alloc_traits::pointer>>;
     using packed_container_type = std::vector<Entity, Allocator>;
+    using entity_traits = entt_traits<Entity>;
 
     [[nodiscard]] auto sparse_ptr(const Entity entt) const {
         const auto pos = static_cast<size_type>(entity_traits::to_entity(entt));
@@ -585,7 +584,7 @@ public:
      * @return The version for the given identifier if present, the tombstone
      * version otherwise.
      */
-    [[nodiscard]] version_type current(const entity_type entt) const {
+    [[nodiscard]] version_type current(const entity_type entt) const ENTT_NOEXCEPT {
         const auto elem = sparse_ptr(entt);
         constexpr auto fallback = entity_traits::to_version(tombstone);
         return elem ? entity_traits::to_version(*elem) : fallback;
@@ -658,6 +657,21 @@ public:
      */
     iterator emplace(const entity_type entt, const void *value = nullptr) {
         return try_emplace(entt, false, value);
+    }
+
+    /**
+     * @brief Bump the version number of an entity.
+     *
+     * @warning
+     * Attempting to bump the version of an entity that doesn't belong to the
+     * sparse set results in undefined behavior.
+     *
+     * @param entt A valid identifier.
+     */
+    void bump(const entity_type entt) {
+        auto &entity = sparse_ref(entt);
+        entity = entity_traits::combine(entity_traits::to_integral(entity), entity_traits::to_integral(entt));
+        packed[static_cast<size_type>(entity_traits::to_entity(entity))] = entt;
     }
 
     /**
@@ -752,7 +766,10 @@ public:
             if(const size_type to = entity_traits::to_entity(*it); to < from) {
                 --from;
                 move_element(from, to);
-                std::swap(packed[from], packed[to]);
+
+                using std::swap;
+                swap(packed[from], packed[to]);
+
                 const auto entity = static_cast<typename entity_traits::entity_type>(to);
                 sparse_ref(packed[to]) = entity_traits::combine(entity, entity_traits::to_integral(packed[to]));
                 *it = entity_traits::combine(static_cast<typename entity_traits::entity_type>(from), entity_traits::reserved);
@@ -790,7 +807,9 @@ public:
         swap_at(static_cast<size_type>(from), static_cast<size_type>(to));
         entt = entity_traits::combine(to, entity_traits::to_integral(packed[from]));
         other = entity_traits::combine(from, entity_traits::to_integral(packed[to]));
-        std::swap(packed[from], packed[to]);
+
+        using std::swap;
+        swap(packed[from], packed[to]);
     }
 
     /**

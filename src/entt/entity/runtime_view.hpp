@@ -22,6 +22,8 @@ namespace internal {
 
 template<typename Type>
 class runtime_view_iterator final {
+    using iterator_type = typename Type::iterator;
+
     [[nodiscard]] bool valid() const {
         return (!tombstone_check || *it != tombstone)
                && std::all_of(++pools->begin(), pools->end(), [entt = *it](const auto *curr) { return curr->contains(entt); })
@@ -29,7 +31,6 @@ class runtime_view_iterator final {
     }
 
 public:
-    using iterator_type = typename Type::iterator;
     using difference_type = typename iterator_type::difference_type;
     using value_type = typename iterator_type::value_type;
     using pointer = typename iterator_type::pointer;
@@ -58,21 +59,21 @@ public:
         return ++(*this), orig;
     }
 
-    runtime_view_iterator &operator--() ENTT_NOEXCEPT {
+    runtime_view_iterator &operator--() {
         while(--it != (*pools)[0]->begin() && !valid()) {}
         return *this;
     }
 
-    runtime_view_iterator operator--(int) ENTT_NOEXCEPT {
+    runtime_view_iterator operator--(int) {
         runtime_view_iterator orig = *this;
         return operator--(), orig;
     }
 
-    [[nodiscard]] pointer operator->() const {
+    [[nodiscard]] pointer operator->() const ENTT_NOEXCEPT {
         return it.operator->();
     }
 
-    [[nodiscard]] reference operator*() const {
+    [[nodiscard]] reference operator*() const ENTT_NOEXCEPT {
         return *operator->();
     }
 
