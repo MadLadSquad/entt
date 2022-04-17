@@ -42,17 +42,17 @@ class storage_proxy_iterator final {
     template<typename Other>
     friend class storage_proxy_iterator;
 
-    using first_type = std::remove_reference_t<decltype(std::declval<It>()->first)>;
-    using second_type = std::remove_reference_t<decltype(std::declval<It>()->second)>;
+    using mapped_type = std::remove_reference_t<decltype(std::declval<It>()->second)>;
 
 public:
-    using value_type = std::pair<first_type, constness_as_t<typename second_type::element_type, second_type> &>;
+    using value_type = std::pair<id_type, constness_as_t<typename mapped_type::element_type, mapped_type> &>;
     using pointer = input_iterator_pointer<value_type>;
     using reference = value_type;
     using difference_type = std::ptrdiff_t;
     using iterator_category = std::input_iterator_tag;
 
-    storage_proxy_iterator() ENTT_NOEXCEPT = default;
+    storage_proxy_iterator() ENTT_NOEXCEPT
+        : it{} {}
 
     storage_proxy_iterator(const It iter) ENTT_NOEXCEPT
         : it{iter} {}
@@ -333,7 +333,25 @@ public:
     using context = internal::registry_context;
 
     /*! @brief Default constructor. */
-    basic_registry() = default;
+    basic_registry()
+        : pools{},
+          groups{},
+          entities{},
+          free_list{tombstone},
+          vars{} {}
+
+    /**
+     * @brief Allocates enough memory upon construction to store `count` pools.
+     * @param count The number of pools to allocate memory for.
+     */
+    basic_registry(const size_type count)
+        : pools{},
+          groups{},
+          entities{},
+          free_list{tombstone},
+          vars{} {
+        pools.reserve(count);
+    }
 
     /**
      * @brief Move constructor.
@@ -632,7 +650,7 @@ public:
      * @return The version of the recycled entity.
      */
     version_type release(const entity_type entity) {
-        return release(entity, entity_traits::to_version(entity) + 1u);
+        return release(entity, static_cast<version_type>(entity_traits::to_version(entity) + 1u));
     }
 
     /**
@@ -664,7 +682,7 @@ public:
     template<typename It>
     void release(It first, It last) {
         for(; first != last; ++first) {
-            release(*first, entity_traits::to_version(*first) + 1u);
+            release(*first);
         }
     }
 
@@ -682,7 +700,7 @@ public:
      * @return The version of the recycled entity.
      */
     version_type destroy(const entity_type entity) {
-        return destroy(entity, entity_traits::to_version(entity) + 1u);
+        return destroy(entity, static_cast<version_type>(entity_traits::to_version(entity) + 1u));
     }
 
     /**
@@ -719,7 +737,7 @@ public:
     template<typename It>
     void destroy(It first, It last) {
         for(; first != last; ++first) {
-            destroy(*first, entity_traits::to_version(*first) + 1u);
+            destroy(*first);
         }
     }
 
@@ -773,7 +791,7 @@ public:
      * @param last An iterator past the last element of the range of entities.
      * @param from An iterator to the first element of the range of components.
      */
-    template<typename Component, typename EIt, typename CIt, typename = std::enable_if_t<std::is_same_v<std::decay_t<typename std::iterator_traits<CIt>::value_type>, Component>>>
+    template<typename Component, typename EIt, typename CIt, typename = std::enable_if_t<std::is_same_v<typename std::iterator_traits<CIt>::value_type, Component>>>
     void insert(EIt first, EIt last, CIt from) {
         ENTT_ASSERT(std::all_of(first, last, [this](const auto entity) { return valid(entity); }), "Invalid entity");
         assure<Component>().insert(first, last, from);
@@ -1080,7 +1098,7 @@ public:
                 curr.second->clear();
             }
 
-            each([this](const auto entity) { release_entity(entity, entity_traits::to_version(entity) + 1u); });
+            each([this](const auto entity) { this->release(entity); });
         } else {
             (assure<Component>().clear(), ...);
         }
@@ -1465,10 +1483,10 @@ public:
     }
 
 private:
-    dense_map<id_type, std::unique_ptr<base_type>, identity> pools{};
-    std::vector<group_data> groups{};
-    std::vector<entity_type> entities{};
-    entity_type free_list{tombstone};
+    dense_map<id_type, std::unique_ptr<base_type>, identity> pools;
+    std::vector<group_data> groups;
+    std::vector<entity_type> entities;
+    entity_type free_list;
     context vars;
 };
 
