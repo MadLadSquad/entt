@@ -318,8 +318,6 @@ endif()
 add_custom_target(
     aob
     SOURCES
-        .github/workflows/build.yml
-        .github/workflows/coverage.yml
         .github/workflows/deploy.yml
         .github/workflows/sanitizer.yml
         .github/FUNDING.yml
