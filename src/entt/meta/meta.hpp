@@ -477,8 +477,8 @@ public:
         if constexpr(std::is_reference_v<Type> && !std::is_const_v<std::remove_reference_t<Type>>) {
             return meta_any{meta_ctx_arg, *ctx};
         } else {
-            auto target = internal::resolve<std::remove_cv_t<std::remove_reference_t<Type>>>(internal::meta_context::from(*ctx));
-            return allow_cast(meta_type{*ctx, target});
+            auto other = internal::resolve<std::remove_cv_t<std::remove_reference_t<Type>>>(internal::meta_context::from(*ctx));
+            return allow_cast(meta_type{*ctx, other});
         }
     }
 
@@ -489,13 +489,8 @@ public:
      */
     template<typename Type>
     bool allow_cast() {
-        auto target = internal::resolve<std::remove_cv_t<std::remove_reference_t<Type>>>(internal::meta_context::from(*ctx));
-
-        if constexpr(std::is_reference_v<Type> && !std::is_const_v<std::remove_reference_t<Type>>) {
-            return allow_cast(meta_type{*ctx, target}) && (storage.data() != nullptr);
-        } else {
-            return allow_cast(meta_type{*ctx, target});
-        }
+        auto other = internal::resolve<std::remove_cv_t<std::remove_reference_t<Type>>>(internal::meta_context::from(*ctx));
+        return allow_cast(meta_type{*ctx, other}) && (!(std::is_reference_v<Type> && !std::is_const_v<std::remove_reference_t<Type>>) || storage.data() != nullptr);
     }
 
     /*! @copydoc any::emplace */
@@ -669,7 +664,7 @@ struct meta_handle {
     /**
      * @brief Creates a handle that points to an unmanaged object.
      * @tparam Type Type of object to use to initialize the handle.
-     * @param area The context from which to search for meta types.
+     * @param ctx The context from which to search for meta types.
      * @param value An instance of an object to use to initialize the handle.
      */
     template<typename Type, typename = std::enable_if_t<!std::is_same_v<std::decay_t<Type>, meta_handle>>>
@@ -1528,16 +1523,16 @@ bool meta_any::set(const id_type id, Type &&value) {
     }
 
     if(const auto *value = data(); node.details) {
+        if(auto it = node.details->conv.find(type.info().hash()); it != node.details->conv.cend()) {
+            return it->second.conv(*ctx, data());
+        }
+
         for(auto &&curr: node.details->base) {
             const auto &as_const = curr.second.type(internal::meta_context::from(*ctx)).from_void(*ctx, nullptr, curr.second.cast(value));
 
             if(auto other = as_const.allow_cast(type); other) {
                 return other;
             }
-        }
-
-        if(auto it = node.details->conv.find(type.info().hash()); it != node.details->conv.cend()) {
-            return it->second.conv(*ctx, data());
         }
     }
 
