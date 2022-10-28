@@ -131,7 +131,7 @@ class basic_any {
                 static_assert(sizeof...(Args) == 1u && (std::is_lvalue_reference_v<Args> && ...), "Invalid arguments");
                 mode = std::is_const_v<std::remove_reference_t<Type>> ? policy::cref : policy::ref;
                 instance = (std::addressof(args), ...);
-            } else if constexpr(in_situ<std::remove_const_t<std::remove_reference_t<Type>>>) {
+            } else if constexpr(in_situ<std::remove_cv_t<std::remove_reference_t<Type>>>) {
                 if constexpr(sizeof...(Args) != 0u && std::is_aggregate_v<std::remove_cv_t<std::remove_reference_t<Type>>>) {
                     new(&storage) std::remove_cv_t<std::remove_reference_t<Type>>{std::forward<Args>(args)...};
                 } else {
@@ -295,7 +295,7 @@ public:
      * @return An opaque pointer the contained instance, if any.
      */
     [[nodiscard]] void *data() noexcept {
-        return (!vtable || mode == policy::cref) ? nullptr : const_cast<void *>(vtable(operation::get, *this, nullptr));
+        return mode == policy::cref ? nullptr : const_cast<void *>(std::as_const(*this).data());
     }
 
     /**
@@ -304,7 +304,7 @@ public:
      * @return An opaque pointer the contained instance, if any.
      */
     [[nodiscard]] void *data(const type_info &req) noexcept {
-        return *info == req ? data() : nullptr;
+        return mode == policy::cref ? nullptr : const_cast<void *>(std::as_const(*this).data(req));
     }
 
     /**
@@ -351,6 +351,8 @@ public:
             vtable(operation::destroy, *this, nullptr);
         }
 
+        // unnecessary but it helps to detect nasty bugs
+        ENTT_ASSERT((instance = nullptr) == nullptr, "");
         info = &type_id<void>();
         vtable = nullptr;
         mode = policy::owner;
