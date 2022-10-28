@@ -789,6 +789,16 @@ template<typename Type>
     } else {
         return maybe_equality_comparable<Type>(0);
     }
+}
+
+template<typename Type>
+[[nodiscard]] constexpr std::enable_if_t<is_complete_v<std::tuple_size<std::remove_cv_t<Type>>>, bool> maybe_equality_comparable(choice_t<2>) {
+    if constexpr(has_tuple_size_value<Type>::value) {
+        return unpack_maybe_equality_comparable<Type>(std::make_index_sequence<std::tuple_size<Type>::value>{});
+    } else {
+        return maybe_equality_comparable<Type>(choice<1>);
+>>>>>>> 7460934cb (Update)
+    }
     // NOLINTEND(modernize-use-transparent-functors)
 }
 
