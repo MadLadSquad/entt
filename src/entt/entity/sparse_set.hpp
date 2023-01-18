@@ -88,6 +88,10 @@ struct sparse_set_iterator final {
         return *operator->();
     }
 
+    [[nodiscard]] constexpr pointer data() const noexcept {
+        return packed ? packed->data() : nullptr;
+    }
+
     [[nodiscard]] constexpr difference_type index() const noexcept {
         return offset - 1;
     }
@@ -139,14 +143,6 @@ template<typename Container>
  * @endcond
  */
 
-/*! @brief Sparse set deletion policy. */
-enum class deletion_policy : std::uint8_t {
-    /*! @brief Swap-and-pop deletion policy. */
-    swap_and_pop = 0u,
-    /*! @brief In-place deletion policy. */
-    in_place = 1u
-};
-
 /**
  * @brief Basic sparse set implementation.
  *
@@ -187,6 +183,10 @@ class basic_sparse_set {
         ENTT_ASSERT(sparse_ptr(entt), "Invalid element");
         const auto pos = static_cast<size_type>(traits_type::to_entity(entt));
         return sparse[pos / traits_type::page_size][fast_mod(pos, traits_type::page_size)];
+    }
+
+    [[nodiscard]] auto to_iterator(const Entity entt) const {
+        return --(end() - index(entt));
     }
 
     [[nodiscard]] auto &assure_at_least(const Entity entt) {
@@ -274,6 +274,13 @@ protected:
         packed[static_cast<size_type>(entt)] = std::exchange(free_list, traits_type::combine(entt, tombstone));
     }
 
+    /*! @brief Compact function for empty sparse sets. */
+    void fast_compact() {
+        ENTT_ASSERT((compact(), size()) == 0u, "Non-empty set");
+        packed.clear();
+        free_list = tombstone;
+    }
+
 protected:
     /**
      * @brief Erases entities from a sparse set.
@@ -290,6 +297,23 @@ protected:
                 in_place_pop(first);
             }
         }
+    }
+
+    /*! @brief Erases all entities of a sparse set. */
+    virtual void pop_all() {
+        if(const auto prev = std::exchange(free_list, tombstone); prev == null) {
+            for(auto first = begin(); !(first.index() < 0); ++first) {
+                sparse_ref(*first) = null;
+            }
+        } else {
+            for(auto first = begin(); !(first.index() < 0); ++first) {
+                if(*first != tombstone) {
+                    sparse_ref(*first) = null;
+                }
+            }
+        }
+
+        packed.clear();
     }
 
     /**
@@ -507,6 +531,14 @@ public:
     }
 
     /**
+     * @brief Checks whether a sparse set is fully packed.
+     * @return True if the sparse set is fully packed, false otherwise.
+     */
+    [[nodiscard]] bool contiguous() const noexcept {
+        return (free_list == null);
+    }
+
+    /**
      * @brief Direct access to the internal packed array.
      * @return A pointer to the internal packed array.
      */
@@ -597,7 +629,7 @@ public:
      * iterator otherwise.
      */
     [[nodiscard]] iterator find(const entity_type entt) const noexcept {
-        return contains(entt) ? --(end() - index(entt)) : end();
+        return contains(entt) ? to_iterator(entt) : end();
     }
 
     /**
@@ -741,7 +773,7 @@ public:
      * @param entt A valid identifier.
      */
     void erase(const entity_type entt) {
-        const auto it = --(end() - index(entt));
+        const auto it = to_iterator(entt);
         pop(it, it + 1u);
     }
 
@@ -785,14 +817,31 @@ public:
     size_type remove(It first, It last) {
         size_type count{};
 
-        for(; first != last; ++first) {
-            count += remove(*first);
+        if constexpr(std::is_same_v<It, basic_iterator>) {
+            while(first != last) {
+                while(first != last && !contains(*first)) {
+                    ++first;
+                }
+
+                const auto it = first;
+
+                while(first != last && contains(*first)) {
+                    ++first;
+                }
+
+                count += std::distance(it, first);
+                erase(it, first);
+            }
+        } else {
+            for(; first != last; ++first) {
+                count += remove(*first);
+            }
         }
 
         return count;
     }
 
-    /*! @brief Removes all tombstones from the packed array of a sparse set. */
+    /*! @brief Removes all tombstones from a sparse set. */
     void compact() {
         size_type from = packed.size();
         for(; from && packed[from - 1u] == tombstone; --from) {}
@@ -943,19 +992,7 @@ public:
 
     /*! @brief Clears a sparse set. */
     void clear() {
-        if(const auto last = end(); free_list == null) {
-            pop(begin(), last);
-        } else {
-            for(auto &&entity: *this) {
-                // tombstone filter on itself
-                if(const auto it = find(entity); it != last) {
-                    pop(it, it + 1u);
-                }
-            }
-        }
-
-        // swap-only sets support
-        compact();
+        pop_all();
     }
 
     /**

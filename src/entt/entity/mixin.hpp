@@ -5,6 +5,7 @@
 #include "../config/config.h"
 #include "../core/any.hpp"
 #include "../signal/sigh.hpp"
+#include "entity.hpp"
 #include "fwd.hpp"
 
 namespace entt {
@@ -29,21 +30,43 @@ class sigh_mixin final: public Type {
     using underlying_iterator = typename Type::base_type::basic_iterator;
 
     void pop(underlying_iterator first, underlying_iterator last) final {
-        ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
+        if(destruction.empty()) {
+            Type::pop(first, last);
+        } else {
+            ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
 
-        for(; first != last; ++first) {
-            const auto entt = *first;
-            destruction.publish(*owner, entt);
-            const auto it = Type::find(entt);
-            Type::pop(it, it + 1u);
+            for(; first != last; ++first) {
+                const auto entt = *first;
+                destruction.publish(*owner, entt);
+                const auto it = Type::find(entt);
+                Type::pop(it, it + 1u);
+            }
         }
     }
 
+    void pop_all() final {
+        if(!destruction.empty()) {
+            ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
+
+            for(auto &&entt: static_cast<typename Type::base_type &>(*this)) {
+                if constexpr(Type::traits_type::in_place_delete) {
+                    if(entt != tombstone) {
+                        destruction.publish(*owner, entt);
+                    }
+                } else {
+                    destruction.publish(*owner, entt);
+                }
+            }
+        }
+
+        Type::pop_all();
+    }
+
     underlying_iterator try_emplace(const typename Type::entity_type entt, const bool force_back, const void *value) final {
-        ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
         const auto it = Type::try_emplace(entt, force_back, value);
 
         if(it != Type::base_type::end()) {
+            ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
             construction.publish(*owner, *it);
         }
 
@@ -210,11 +233,14 @@ public:
      */
     template<typename It, typename... Args>
     void insert(It first, It last, Args &&...args) {
-        ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
         Type::insert(first, last, std::forward<Args>(args)...);
 
-        for(auto it = construction.empty() ? last : first; it != last; ++it) {
-            construction.publish(*owner, *it);
+        if(!construction.empty()) {
+            ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
+
+            for(; first != last; ++first) {
+                construction.publish(*owner, *first);
+            }
         }
     }
 
