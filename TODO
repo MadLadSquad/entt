@@ -10,9 +10,6 @@ DOC:
 * bump entities, reserved bits on identifiers
 
 TODO:
-* further optimize exclusion lists in multi type views (no existence check)
-* further improve meta resolve function by id (bimap)
-* get rid of observers, storage based views made them pointless - document alternatives
 * deprecate non-owning groups in favor of owning views and view packs, introduce lazy owning views
 * bring nested groups back in place (see bd34e7f)
 * work stealing job system (see #100) + mt scheduler based on const awareness for types
@@ -20,18 +17,24 @@ TODO:
 * view: update natvis as needed after the last rework, merge pools/filter in the same array, drop check (?) and turn view into a position
 * view: type-only view_iterator (dyn get/excl sizes), type-only basic_common_view (dyn get/excl sizes with pointer to array from derived)
 * combine version-mask-vs-version-bits tricks with reserved bits to allow things like enabling/disabling
-* review all // NOLINT
 * self contained entity traits to avoid explicit specializations (ie enum constants)
 * auto type info data from types if present
 * test: push sharing types further
 * after non-continuous generation for entity storage:
   - get/reset placeholder to position after saving/loading (avoid long lookup)
+  - allow skipping/reserving entity identifiers
   - documentation for reserved entities
 * storage entity: no emplace/insert, rename and add a fast range-push from above
-* view: review tombstone checks, no longer required with storage entity and Get 1
-* review the short-circuit model now that all storage are freely available
-* more test around views and storage entity - ie view ::back
-* compilation flag to disable sigh mixin by default and only have plain storage types for all components
-* empty type optimization for tables (when they are in-place, no rush)
-* natvis for table class and all related types
-* single type view operator->
+* view: propagate tombostone check request to iterator
+* table: pop back to support swap and pop, single column access, empty type optimization
+* checkout tools workflow
+* improve front (no multiple checks) and back (ie no contains) for multi-type view
+* cleanup common view from tricks to handle single swap-only and in-place, if constexpr branches
+* entity based component_traits
+* review cmake warning about FetchContent_Populate (need .28 and EXCLUDE_FROM_ALL for FetchContent)
+* after removing meta prop vectors, copy meta objects in their handles directly
+* suppress -Wself-move on CI with g++13
+* view and view iterator specializations for multi, single and filtered elements
+* organizer support to groups
+* meta range: move id to meta objects and return plain types (?), then remove id from meta base and meta ctor too
+* doc: automatic signal registration
