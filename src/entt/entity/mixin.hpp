@@ -6,11 +6,37 @@
 #include "../config/config.h"
 #include "../core/any.hpp"
 #include "../signal/sigh.hpp"
-#include "component.hpp"
 #include "entity.hpp"
 #include "fwd.hpp"
 
 namespace entt {
+
+/*! @cond TURN_OFF_DOXYGEN */
+namespace internal {
+
+template<typename, typename, typename = void>
+struct has_on_construct final: std::false_type {};
+
+template<typename Type, typename Registry>
+struct has_on_construct<Type, Registry, std::void_t<decltype(Type::on_construct(std::declval<Registry &>(), std::declval<Registry>().create()))>>
+    : std::true_type {};
+
+template<typename, typename, typename = void>
+struct has_on_update final: std::false_type {};
+
+template<typename Type, typename Registry>
+struct has_on_update<Type, Registry, std::void_t<decltype(Type::on_update(std::declval<Registry &>(), std::declval<Registry>().create()))>>
+    : std::true_type {};
+
+template<typename, typename, typename = void>
+struct has_on_destroy final: std::false_type {};
+
+template<typename Type, typename Registry>
+struct has_on_destroy<Type, Registry, std::void_t<decltype(Type::on_destroy(std::declval<Registry &>(), std::declval<Registry>().create()))>>
+    : std::true_type {};
+
+} // namespace internal
+/*! @endcond */
 
 /**
  * @brief Mixin type used to add signal support to storage types.
@@ -37,7 +63,7 @@ class basic_sigh_mixin final: public Type {
 
     static_assert(std::is_base_of_v<basic_registry_type, owner_type>, "Invalid registry type");
 
-    auto &owner_or_assert() const noexcept {
+    [[nodiscard]] auto &owner_or_assert() const noexcept {
         ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
         return static_cast<owner_type &>(*owner);
     }
@@ -59,12 +85,12 @@ private:
     void pop_all() final {
         if(auto &reg = owner_or_assert(); !destruction.empty()) {
             if constexpr(std::is_same_v<typename underlying_type::element_type, typename underlying_type::entity_type>) {
-                for(typename Type::size_type pos{}, last = Type::free_list(); pos < last; ++pos) {
+                for(typename underlying_type::size_type pos{}, last = underlying_type::free_list(); pos < last; ++pos) {
                     destruction.publish(reg, underlying_type::base_type::operator[](pos));
                 }
             } else {
                 for(auto entt: static_cast<typename underlying_type::base_type &>(*this)) {
-                    if constexpr(component_traits<typename underlying_type::element_type>::in_place_delete) {
+                    if constexpr(underlying_type::storage_policy == deletion_policy::in_place) {
                         if(entt != tombstone) {
                             destruction.publish(reg, entt);
                         }
@@ -88,6 +114,12 @@ private:
         return it;
     }
 
+    void bind_any(any value) noexcept final {
+        auto *reg = any_cast<basic_registry_type>(&value);
+        owner = reg ? reg : owner;
+        underlying_type::bind_any(std::move(value));
+    }
+
 public:
     /*! @brief Allocator type. */
     using allocator_type = typename underlying_type::allocator_type;
@@ -109,7 +141,22 @@ public:
           owner{},
           construction{allocator},
           destruction{allocator},
-          update{allocator} {}
+          update{allocator} {
+        if constexpr(internal::has_on_construct<typename underlying_type::element_type, Registry>::value) {
+            entt::sink{construction}.template connect<&underlying_type::element_type::on_construct>();
+        }
+
+        if constexpr(internal::has_on_update<typename underlying_type::element_type, Registry>::value) {
+            entt::sink{update}.template connect<&underlying_type::element_type::on_update>();
+        }
+
+        if constexpr(internal::has_on_destroy<typename underlying_type::element_type, Registry>::value) {
+            entt::sink{destruction}.template connect<&underlying_type::element_type::on_destroy>();
+        }
+    }
+
+    /*! @brief Default copy constructor, deleted on purpose. */
+    basic_sigh_mixin(const basic_sigh_mixin &) = delete;
 
     /**
      * @brief Move constructor.
@@ -127,24 +174,29 @@ public:
      * @param other The instance to move from.
      * @param allocator The allocator to use.
      */
-    basic_sigh_mixin(basic_sigh_mixin &&other, const allocator_type &allocator) noexcept
+    basic_sigh_mixin(basic_sigh_mixin &&other, const allocator_type &allocator)
         : underlying_type{std::move(other), allocator},
           owner{other.owner},
           construction{std::move(other.construction), allocator},
           destruction{std::move(other.destruction), allocator},
           update{std::move(other.update), allocator} {}
 
+    /*! @brief Default destructor. */
+    ~basic_sigh_mixin() override = default;
+
+    /**
+     * @brief Default copy assignment operator, deleted on purpose.
+     * @return This mixin.
+     */
+    basic_sigh_mixin &operator=(const basic_sigh_mixin &) = delete;
+
     /**
      * @brief Move assignment operator.
      * @param other The instance to move from.
-     * @return This storage.
+     * @return This mixin.
      */
     basic_sigh_mixin &operator=(basic_sigh_mixin &&other) noexcept {
-        underlying_type::operator=(std::move(other));
-        owner = other.owner;
-        construction = std::move(other.construction);
-        destruction = std::move(other.destruction);
-        update = std::move(other.update);
+        swap(other);
         return *this;
     }
 
@@ -152,13 +204,13 @@ public:
      * @brief Exchanges the contents with those of a given storage.
      * @param other Storage to exchange the content with.
      */
-    void swap(basic_sigh_mixin &other) {
+    void swap(basic_sigh_mixin &other) noexcept {
         using std::swap;
-        underlying_type::swap(other);
         swap(owner, other.owner);
         swap(construction, other.construction);
         swap(destruction, other.destruction);
         swap(update, other.update);
+        underlying_type::swap(other);
     }
 
     /**
@@ -283,16 +335,6 @@ public:
                 construction.publish(reg, underlying_type::operator[](from));
             }
         }
-    }
-
-    /**
-     * @brief Forwards variables to derived classes, if any.
-     * @param value A variable wrapped in an opaque container.
-     */
-    void bind(any value) noexcept final {
-        auto *reg = any_cast<basic_registry_type>(&value);
-        owner = reg ? reg : owner;
-        underlying_type::bind(std::move(value));
     }
 
 private:
