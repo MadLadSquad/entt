@@ -266,8 +266,8 @@ class basic_storage: public basic_sparse_set<Entity, typename std::allocator_tra
         const auto it = base_type::try_emplace(entt, force_back);
 
         ENTT_TRY {
-            auto elem = assure_at_least(static_cast<size_type>(it.index()));
-            entt::uninitialized_construct_using_allocator(to_address(elem), get_allocator(), std::forward<Args>(args)...);
+            auto *elem = to_address(assure_at_least(static_cast<size_type>(it.index())));
+            entt::uninitialized_construct_using_allocator(elem, get_allocator(), std::forward<Args>(args)...);
         }
         ENTT_CATCH {
             base_type::pop(it, it + 1u);
@@ -298,30 +298,34 @@ class basic_storage: public basic_sparse_set<Entity, typename std::allocator_tra
         payload.resize(from);
     }
 
+    void swap_at(const std::size_t from, const std::size_t to) {
+        using std::swap;
+        swap(element_at(from), element_at(to));
+    }
+
+    void move_to(const std::size_t from, const std::size_t to) {
+        auto &elem = element_at(from);
+        allocator_type allocator{get_allocator()};
+        entt::uninitialized_construct_using_allocator(to_address(assure_at_least(to)), allocator, std::move(elem));
+        alloc_traits::destroy(allocator, std::addressof(elem));
+    }
+
 private:
     [[nodiscard]] const void *get_at(const std::size_t pos) const final {
         return std::addressof(element_at(pos));
     }
 
     void swap_or_move([[maybe_unused]] const std::size_t from, [[maybe_unused]] const std::size_t to) override {
-        static constexpr bool is_pinned_type_v = !(std::is_move_constructible_v<Type> && std::is_move_assignable_v<Type>);
+        static constexpr bool is_pinned_type = !(std::is_move_constructible_v<Type> && std::is_move_assignable_v<Type>);
         // use a runtime value to avoid compile-time suppression that drives the code coverage tool crazy
-        ENTT_ASSERT((from + 1u) && !is_pinned_type_v, "Pinned type");
+        ENTT_ASSERT((from + 1u) && !is_pinned_type, "Pinned type");
 
-        if constexpr(!is_pinned_type_v) {
-            auto &elem = element_at(from);
-
+        if constexpr(!is_pinned_type) {
             if constexpr(traits_type::in_place_delete) {
-                if(base_type::operator[](to) == tombstone) {
-                    allocator_type allocator{get_allocator()};
-                    entt::uninitialized_construct_using_allocator(to_address(assure_at_least(to)), allocator, std::move(elem));
-                    alloc_traits::destroy(allocator, std::addressof(elem));
-                    return;
-                }
+                (base_type::operator[](to) == tombstone) ? move_to(from, to) : swap_at(from, to);
+            } else {
+                swap_at(from, to);
             }
-
-            using std::swap;
-            swap(elem, element_at(to));
         }
     }
 
@@ -374,7 +378,7 @@ protected:
      * @return Iterator pointing to the emplaced element.
      */
     underlying_iterator try_emplace([[maybe_unused]] const Entity entt, [[maybe_unused]] const bool force_back, const void *value) override {
-        if(value) {
+        if(value != nullptr) {
             if constexpr(std::is_copy_constructible_v<element_type>) {
                 return emplace_element(entt, force_back, *static_cast<const element_type *>(value));
             } else {

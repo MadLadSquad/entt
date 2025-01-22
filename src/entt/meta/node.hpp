@@ -37,9 +37,9 @@ enum class meta_traits : std::uint32_t {
     is_enum = 0x0040,
     is_class = 0x0080,
     is_pointer = 0x0100,
-    is_meta_pointer_like = 0x0200,
-    is_meta_sequence_container = 0x0400,
-    is_meta_associative_container = 0x0800,
+    is_pointer_like = 0x0200,
+    is_sequence_container = 0x0400,
+    is_associative_container = 0x0800,
     _user_defined_traits = 0xFFFF,
     _entt_enum_as_bitmask = 0xFFFF
 };
@@ -64,12 +64,6 @@ struct meta_type_node;
 
 struct meta_custom_node {
     id_type type{};
-    std::shared_ptr<void> value{};
-};
-
-struct meta_prop_node {
-    id_type id{};
-    meta_type_node (*type)(const meta_context &) noexcept {};
     std::shared_ptr<void> value{};
 };
 
@@ -108,7 +102,6 @@ struct meta_data_node {
     bool (*set)(meta_handle, meta_any){};
     meta_any (*get)(const meta_ctx &, meta_handle){};
     meta_custom_node custom{};
-    std::vector<meta_prop_node> prop{};
 };
 
 struct meta_func_node {
@@ -122,7 +115,6 @@ struct meta_func_node {
     meta_any (*invoke)(const meta_ctx &, meta_handle, meta_any *const){};
     std::shared_ptr<meta_func_node> next{};
     meta_custom_node custom{};
-    std::vector<meta_prop_node> prop{};
 };
 
 struct meta_template_node {
@@ -139,7 +131,6 @@ struct meta_type_descriptor {
     std::vector<meta_conv_node> conv{};
     std::vector<meta_data_node> data{};
     std::vector<meta_func_node> func{};
-    std::vector<meta_prop_node> prop{};
 };
 
 struct meta_type_node {
@@ -172,7 +163,7 @@ template<auto Member, typename Type, typename Value>
 }
 
 [[nodiscard]] inline auto *find_overload(meta_func_node *curr, std::remove_pointer_t<decltype(meta_func_node::invoke)> *const ref) {
-    while(curr && (curr->invoke != ref)) { curr = curr->next.get(); }
+    while((curr != nullptr) && (curr->invoke != ref)) { curr = curr->next.get(); }
     return curr;
 }
 
@@ -207,8 +198,8 @@ template<typename... Args>
     return value(context);
 }
 
-[[nodiscard]] inline const void *try_cast(const meta_context &context, const meta_type_node &from, const meta_type_node &to, const void *instance) noexcept {
-    if(from.info && to.info && *from.info == *to.info) {
+[[nodiscard]] inline const void *try_cast(const meta_context &context, const meta_type_node &from, const type_info &to, const void *instance) noexcept {
+    if((from.info != nullptr) && *from.info == to) {
         return instance;
     }
 
@@ -273,9 +264,9 @@ template<typename Type>
             | (std::is_enum_v<Type> ? meta_traits::is_enum : meta_traits::is_none)
             | (std::is_class_v<Type> ? meta_traits::is_class : meta_traits::is_none)
             | (std::is_pointer_v<Type> ? meta_traits::is_pointer : meta_traits::is_none)
-            | (is_meta_pointer_like_v<Type> ? meta_traits::is_meta_pointer_like : meta_traits::is_none)
-            | (is_complete_v<meta_sequence_container_traits<Type>> ? meta_traits::is_meta_sequence_container : meta_traits::is_none)
-            | (is_complete_v<meta_associative_container_traits<Type>> ? meta_traits::is_meta_associative_container : meta_traits::is_none),
+            | (is_meta_pointer_like_v<Type> ? meta_traits::is_pointer_like : meta_traits::is_none)
+            | (is_complete_v<meta_sequence_container_traits<Type>> ? meta_traits::is_sequence_container : meta_traits::is_none)
+            | (is_complete_v<meta_associative_container_traits<Type>> ? meta_traits::is_associative_container : meta_traits::is_none),
         size_of_v<Type>,
         &resolve<Type>,
         &resolve<std::remove_cv_t<std::remove_pointer_t<Type>>>};
@@ -298,10 +289,15 @@ template<typename Type>
 
     if constexpr(!std::is_void_v<Type> && !std::is_function_v<Type>) {
         node.from_void = +[](const meta_ctx &ctx, void *elem, const void *celem) {
-            if(elem) {
+            if(elem && celem) { // ownership construction request
+                return meta_any{ctx, std::in_place, static_cast<std::decay_t<Type> *>(elem)};
+            }
+
+            if(elem) { // non-const reference construction request
                 return meta_any{ctx, std::in_place_type<std::decay_t<Type> &>, *static_cast<std::decay_t<Type> *>(elem)};
             }
 
+            // const reference construction request
             return meta_any{ctx, std::in_place_type<const std::decay_t<Type> &>, *static_cast<const std::decay_t<Type> *>(celem)};
         };
     }
