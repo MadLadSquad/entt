@@ -98,21 +98,6 @@ protected:
         }
     }
 
-    void prop(meta_prop_node node) {
-        std::vector<meta_prop_node> *container = nullptr;
-
-        if(bucket == parent) {
-            container = &details->prop;
-        } else if(invoke == nullptr) {
-            container = &find_member_or_assert()->prop;
-        } else {
-            container = &find_overload_or_assert()->prop;
-        }
-
-        auto *member = find_member<&meta_prop_node::id>(*container, node.id);
-        member ? (*member = std::move(node)) : container->emplace_back(std::move(node));
-    }
-
     void traits(const meta_traits value) {
         if(bucket == parent) {
             meta_context::from(*ctx).value[bucket].traits |= value;
@@ -134,17 +119,16 @@ protected:
     }
 
 public:
-    basic_meta_factory(const id_type id, meta_ctx &area)
+    basic_meta_factory(meta_ctx &area, meta_type_node node)
         : ctx{&area},
-          parent{id},
-          bucket{id} {
-        auto &&elem = meta_context::from(*ctx).value[parent];
-
-        if(!elem.details) {
-            elem.details = std::make_shared<meta_type_descriptor>();
+          parent{node.info->hash()},
+          bucket{parent},
+          details{node.details.get()} {
+        if(details == nullptr) {
+            node.details = std::make_shared<meta_type_descriptor>();
+            meta_context::from(*ctx).value[parent] = node;
+            details = node.details.get();
         }
-
-        details = elem.details.get();
     }
 
 private:
@@ -187,14 +171,14 @@ class meta_factory: private internal::basic_meta_factory {
 public:
     /*! @brief Default constructor. */
     meta_factory() noexcept
-        : internal::basic_meta_factory{type_id<Type>(), locator<meta_ctx>::value_or()} {}
+        : meta_factory{locator<meta_ctx>::value_or()} {}
 
     /**
      * @brief Context aware constructor.
      * @param area The context into which to construct meta types.
      */
     meta_factory(meta_ctx &area) noexcept
-        : internal::basic_meta_factory{type_id<Type>().hash(), area} {}
+        : internal::basic_meta_factory{area, internal::resolve<Type>(internal::meta_context::from(area))} {}
 
     /**
      * @brief Assigns a custom unique identifier to a meta type.
@@ -369,7 +353,7 @@ public:
             base_type::data(
                 internal::meta_data_node{
                     id,
-                    ((std::is_same_v<Type, std::remove_cv_t<std::remove_reference_t<data_type>>> || std::is_const_v<std::remove_reference_t<data_type>>) ? internal::meta_traits::is_const : internal::meta_traits::is_none) | internal::meta_traits::is_static,
+                    ((!std::is_pointer_v<decltype(Data)> || std::is_const_v<data_type>) ? internal::meta_traits::is_const : internal::meta_traits::is_none) | internal::meta_traits::is_static,
                     1u,
                     &internal::resolve<std::remove_cv_t<std::remove_reference_t<data_type>>>,
                     &meta_arg<type_list<std::remove_cv_t<std::remove_reference_t<data_type>>>>,
@@ -488,27 +472,6 @@ public:
     }
 
     /**
-     * @brief Assigns a property to the last created meta object.
-     *
-     * Both the key and the value (if any) must be at least copy constructible.
-     *
-     * @tparam Value Optional type of the property value.
-     * @param id Property key.
-     * @param value Optional property value.
-     * @return A meta factory for the parent type.
-     */
-    template<typename... Value>
-    [[deprecated("use ::custom() instead")]] meta_factory prop(id_type id, [[maybe_unused]] Value &&...value) {
-        if constexpr(sizeof...(Value) == 0u) {
-            base_type::prop(internal::meta_prop_node{id, &internal::resolve<void>});
-        } else {
-            base_type::prop(internal::meta_prop_node{id, &internal::resolve<std::decay_t<Value>>..., std::make_shared<std::decay_t<Value>>(std::forward<Value>(value))...});
-        }
-
-        return *this;
-    }
-
-    /**
      * @brief Sets traits on the last created meta object.
      *
      * The assigned value must be an enum and intended as a bitmask.
@@ -551,10 +514,7 @@ public:
  * @return A meta factory for the given type.
  */
 template<typename Type>
-[[nodiscard]] auto meta(meta_ctx &ctx) noexcept {
-    auto &&context = internal::meta_context::from(ctx);
-    // make sure the type exists in the context before returning a factory
-    context.value.try_emplace(type_id<Type>().hash(), internal::resolve<Type>(context));
+[[nodiscard]] [[deprecated("use meta_factory directly instead")]] auto meta(meta_ctx &ctx) noexcept {
     return meta_factory<Type>{ctx};
 }
 
@@ -570,7 +530,7 @@ template<typename Type>
  * @return A meta factory for the given type.
  */
 template<typename Type>
-[[nodiscard]] auto meta() noexcept {
+[[nodiscard]] [[deprecated("use meta_factory directly instead")]] auto meta() noexcept {
     return meta<Type>(locator<meta_ctx>::value_or());
 }
 

@@ -18,6 +18,9 @@ namespace entt {
 /*! @cond TURN_OFF_DOXYGEN */
 namespace internal {
 
+template<typename... Type>
+static constexpr bool tombstone_check_v = ((sizeof...(Type) == 1u) && ... && (Type::storage_policy == deletion_policy::in_place));
+
 template<typename Type>
 const Type *view_placeholder() {
     static_assert(std::is_same_v<std::remove_const_t<std::remove_reference_t<Type>>, Type>, "Unexpected type");
@@ -38,8 +41,8 @@ template<typename It, typename Entity>
 }
 
 template<typename It>
-[[nodiscard]] bool fully_initialized(It first, const It last) noexcept {
-    for(const auto *placeholder = view_placeholder<std::remove_const_t<std::remove_pointer_t<typename std::iterator_traits<It>::value_type>>>(); (first != last) && *first != placeholder; ++first) {}
+[[nodiscard]] bool fully_initialized(It first, const It last, const std::remove_pointer_t<typename std::iterator_traits<It>::value_type> *placeholder) noexcept {
+    for(; (first != last) && *first != placeholder; ++first) {}
     return first == last;
 }
 
@@ -53,7 +56,7 @@ template<typename Result, typename View, typename Other, std::size_t... GLhs, st
     return elem;
 }
 
-template<typename Type, std::size_t Get, std::size_t Exclude>
+template<typename Type, bool Checked, std::size_t Get, std::size_t Exclude>
 class view_iterator final {
     template<typename, typename...>
     friend class extended_view_iterator;
@@ -62,9 +65,9 @@ class view_iterator final {
     using iterator_traits = std::iterator_traits<iterator_type>;
 
     [[nodiscard]] bool valid(const typename iterator_traits::value_type entt) const noexcept {
-        return ((Get != 1u) || (entt != tombstone))
-               && internal::all_of(pools.begin(), pools.begin() + index, entt) && internal::all_of(pools.begin() + index + 1, pools.end(), entt)
-               && internal::none_of(filter.begin(), filter.end(), entt);
+        return (!Checked || (entt != tombstone))
+               && ((Get == 1u) || (internal::all_of(pools.begin(), pools.begin() + index, entt) && internal::all_of(pools.begin() + index + 1, pools.end(), entt)))
+               && ((Exclude == 0u) || internal::none_of(filter.begin(), filter.end(), entt));
     }
 
     void seek_next() {
@@ -89,6 +92,7 @@ public:
           pools{value},
           filter{excl},
           index{idx} {
+        ENTT_ASSERT((Get != 1u) || (Exclude != 0u) || pools[0u]->policy() == deletion_policy::in_place, "Non in-place storage view iterator");
         seek_next();
     }
 
@@ -219,10 +223,11 @@ class basic_view;
  * @brief Basic storage view implementation.
  * @warning For internal use only, backward compatibility not guaranteed.
  * @tparam Type Common type among all storage types.
+ * @tparam Checked True to enable the tombstone check, false otherwise.
  * @tparam Get Number of storage iterated by the view.
  * @tparam Exclude Number of storage used to filter the view.
  */
-template<typename Type, std::size_t Get, std::size_t Exclude>
+template<typename Type, bool Checked, std::size_t Get, std::size_t Exclude>
 class basic_common_view {
     static_assert(std::is_same_v<std::remove_const_t<std::remove_reference_t<Type>>, Type>, "Unexpected type");
 
@@ -250,7 +255,7 @@ protected:
     /*! @cond TURN_OFF_DOXYGEN */
     basic_common_view() noexcept {
         for(size_type pos{}; pos < Exclude; ++pos) {
-            filter[pos] = internal::view_placeholder<Type>();
+            filter[pos] = placeholder;
         }
     }
 
@@ -265,25 +270,19 @@ protected:
         return pools[pos];
     }
 
-    [[nodiscard]] const Type *storage(const std::size_t pos) const noexcept {
-        if(pos < Get) {
-            return pools[pos];
-        } else if(const auto idx = pos - Get; filter[idx] != internal::view_placeholder<Type>()) {
-            return filter[idx];
-        }
-
-        return nullptr;
+    void pool_at(const std::size_t pos, const Type *elem) noexcept {
+        ENTT_ASSERT(elem != nullptr, "Unexpected element");
+        pools[pos] = elem;
+        refresh();
     }
 
-    void storage(const std::size_t pos, const Type *elem) noexcept {
-        ENTT_ASSERT(elem != nullptr, "Unexpected element");
+    [[nodiscard]] const Type *filter_at(const std::size_t pos) const noexcept {
+        return (filter[pos] == placeholder) ? nullptr : filter[pos];
+    }
 
-        if(pos < Get) {
-            pools[pos] = elem;
-            refresh();
-        } else {
-            filter[pos - Get] = elem;
-        }
+    void filter_at(const std::size_t pos, const Type *elem) noexcept {
+        ENTT_ASSERT(elem != nullptr, "Unexpected element");
+        filter[pos] = elem;
     }
 
     [[nodiscard]] bool none_of(const typename Type::entity_type entt) const noexcept {
@@ -303,11 +302,11 @@ public:
     /*! @brief Unsigned integer type. */
     using size_type = std::size_t;
     /*! @brief Forward iterator type. */
-    using iterator = internal::view_iterator<common_type, Get, Exclude>;
+    using iterator = internal::view_iterator<common_type, Checked, Get, Exclude>;
 
     /*! @brief Updates the internal leading view if required. */
     void refresh() noexcept {
-        size_type pos = (index != Get) * Get;
+        size_type pos = static_cast<size_type>(index != Get) * Get;
         for(; pos < Get && pools[pos] != nullptr; ++pos) {}
 
         if(pos == Get) {
@@ -328,7 +327,7 @@ public:
      * @return Estimated number of entities iterated by the view.
      */
     [[nodiscard]] size_type size_hint() const noexcept {
-        return (index != Get) ? pools[index]->size() : size_type{};
+        return (index != Get) ? offset() : size_type{};
     }
 
     /**
@@ -369,7 +368,7 @@ public:
         if(index != Get) {
             auto it = pools[index]->rbegin();
             const auto last = it + static_cast<typename iterator::difference_type>(offset());
-            for(; it != last && !contains(*it); ++it) {}
+            for(; it != last && !(internal::all_of(pools.begin(), pools.begin() + index, *it) && internal::all_of(pools.begin() + index + 1, pools.end(), *it) && internal::none_of(filter.begin(), filter.end(), *it)); ++it) {}
             return it == last ? null : *it;
         }
 
@@ -391,7 +390,7 @@ public:
      * @return True if the view is fully initialized, false otherwise.
      */
     [[nodiscard]] explicit operator bool() const noexcept {
-        return (index != Get) && internal::fully_initialized(filter.begin(), filter.end());
+        return (index != Get) && internal::fully_initialized(filter.begin(), filter.end(), placeholder);
     }
 
     /**
@@ -409,6 +408,7 @@ public:
 private:
     std::array<const common_type *, Get> pools{};
     std::array<const common_type *, Exclude> filter{};
+    const common_type *placeholder{internal::view_placeholder<common_type>()};
     size_type index{Get};
 };
 
@@ -426,8 +426,11 @@ private:
  */
 template<typename... Get, typename... Exclude>
 class basic_view<get_t<Get...>, exclude_t<Exclude...>, std::enable_if_t<(sizeof...(Get) != 0u)>>
-    : public basic_common_view<std::common_type_t<typename Get::base_type..., typename Exclude::base_type...>, sizeof...(Get), sizeof...(Exclude)> {
-    using base_type = basic_common_view<std::common_type_t<typename Get::base_type..., typename Exclude::base_type...>, sizeof...(Get), sizeof...(Exclude)>;
+    : public basic_common_view<std::common_type_t<typename Get::base_type...>, internal::tombstone_check_v<Get...>, sizeof...(Get), sizeof...(Exclude)> {
+    using base_type = basic_common_view<std::common_type_t<typename Get::base_type...>, internal::tombstone_check_v<Get...>, sizeof...(Get), sizeof...(Exclude)>;
+
+    template<std::size_t Index>
+    using element_at = type_list_element_t<Index, type_list<Get..., Exclude...>>;
 
     template<typename Type>
     static constexpr std::size_t index_of = type_list_index_v<std::remove_const_t<Type>, type_list<typename Get::element_type..., typename Exclude::element_type...>>;
@@ -448,10 +451,8 @@ class basic_view<get_t<Get...>, exclude_t<Exclude...>, std::enable_if_t<(sizeof.
 
     template<std::size_t Curr, typename Func, std::size_t... Index>
     void each(Func &func, std::index_sequence<Index...>) const {
-        static constexpr bool tombstone_check_required = ((sizeof...(Get) == 1u) && ... && (Get::storage_policy == deletion_policy::in_place));
-
         for(const auto curr: storage<Curr>()->each()) {
-            if(const auto entt = std::get<0>(curr); (!tombstone_check_required || (entt != tombstone)) && ((Curr == Index || base_type::pool_at(Index)->contains(entt)) && ...) && base_type::none_of(entt)) {
+            if(const auto entt = std::get<0>(curr); (!internal::tombstone_check_v<Get...> || (entt != tombstone)) && ((Curr == Index || base_type::pool_at(Index)->contains(entt)) && ...) && base_type::none_of(entt)) {
                 if constexpr(is_applicable_v<Func, decltype(std::tuple_cat(std::tuple<entity_type>{}, std::declval<basic_view>().get({})))>) {
                     std::apply(func, std::tuple_cat(std::make_tuple(entt), dispatch_get<Curr, Index>(curr)...));
                 } else {
@@ -536,8 +537,11 @@ public:
      */
     template<std::size_t Index>
     [[nodiscard]] auto *storage() const noexcept {
-        using type = type_list_element_t<Index, type_list<Get..., Exclude...>>;
-        return static_cast<type *>(const_cast<constness_as_t<common_type, type> *>(base_type::storage(Index)));
+        if constexpr(Index < sizeof...(Get)) {
+            return static_cast<element_at<Index> *>(const_cast<constness_as_t<common_type, element_at<Index>> *>(base_type::pool_at(Index)));
+        } else {
+            return static_cast<element_at<Index> *>(const_cast<constness_as_t<common_type, element_at<Index>> *>(base_type::filter_at(Index - sizeof...(Get))));
+        }
     }
 
     /**
@@ -558,8 +562,13 @@ public:
      */
     template<std::size_t Index, typename Type>
     void storage(Type &elem) noexcept {
-        static_assert(std::is_convertible_v<Type &, type_list_element_t<Index, type_list<Get..., Exclude...>> &>, "Unexpected type");
-        base_type::storage(Index, &elem);
+        static_assert(std::is_convertible_v<Type &, element_at<Index> &>, "Unexpected type");
+
+        if constexpr(Index < sizeof...(Get)) {
+            base_type::pool_at(Index, &elem);
+        } else {
+            base_type::filter_at(Index - sizeof...(Get), &elem);
+        }
     }
 
     /**
@@ -634,6 +643,17 @@ public:
     }
 
     /**
+     * @brief Combines a view and a storage in _more specific_ view.
+     * @tparam OGet Type of storage to combine the view with.
+     * @param other The storage for the type to combine the view with.
+     * @return A more specific view.
+     */
+    template<typename OGet>
+    [[nodiscard]] std::enable_if_t<std::is_base_of_v<common_type, OGet>, basic_view<get_t<Get..., OGet>, exclude_t<Exclude...>>> operator|(OGet &other) const noexcept {
+        return *this | basic_view<get_t<OGet>, exclude_t<>>{other};
+    }
+
+    /**
      * @brief Combines two views in a _more specific_ one.
      * @tparam OGet Element list of the view to combine with.
      * @tparam OExclude Filter list of the view to combine with.
@@ -675,7 +695,7 @@ public:
     /*! @brief Unsigned integer type. */
     using size_type = std::size_t;
     /*! @brief Random access iterator type. */
-    using iterator = std::conditional_t<Policy == deletion_policy::in_place, internal::view_iterator<common_type, 1u, 0u>, typename common_type::iterator>;
+    using iterator = std::conditional_t<Policy == deletion_policy::in_place, internal::view_iterator<common_type, true, 1u, 0u>, typename common_type::iterator>;
     /*! @brief Reverse iterator type. */
     using reverse_iterator = std::conditional_t<Policy == deletion_policy::in_place, void, typename common_type::reverse_iterator>;
 
@@ -840,8 +860,7 @@ public:
             const auto it = leading ? leading->find(entt) : iterator{};
             return leading && (static_cast<size_type>(it.index()) < leading->free_list()) ? it : iterator{};
         } else {
-            const auto it = leading ? leading->find(entt) : typename common_type::iterator{};
-            return iterator{it, {leading}, {}, 0u};
+            return leading ? iterator{leading->find(entt), {leading}, {}, 0u} : iterator{};
         }
     }
 
@@ -1062,6 +1081,17 @@ public:
             static_assert(Get::storage_policy == deletion_policy::in_place, "Unexpected storage policy");
             return iterable{base_type::begin(), base_type::end()};
         }
+    }
+
+    /**
+     * @brief Combines a view and a storage in _more specific_ view.
+     * @tparam OGet Type of storage to combine the view with.
+     * @param other The storage for the type to combine the view with.
+     * @return A more specific view.
+     */
+    template<typename OGet>
+    [[nodiscard]] std::enable_if_t<std::is_base_of_v<common_type, OGet>, basic_view<get_t<Get, OGet>, exclude_t<>>> operator|(OGet &other) const noexcept {
+        return *this | basic_view<get_t<OGet>, exclude_t<>>{other};
     }
 
     /**
